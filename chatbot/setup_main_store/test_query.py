@@ -2,7 +2,7 @@ import google.genai as genai
 import google.genai.types as types
 import sys
 
-from chatbot import config
+from chatbot.config import config
 
 # --- Hằng số từ Config ---
 GOOGLE_API_KEY = config.GOOGLE_API_KEY
