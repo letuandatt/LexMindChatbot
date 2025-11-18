@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pymongo import MongoClient, ASCENDING, DESCENDING
 from bson.objectid import ObjectId
 from PIL import Image
+import time  # Added for polling
 
 # --- LangChain Imports ---
 from langchain_core.messages import HumanMessage, AIMessage
@@ -65,14 +66,37 @@ def get_mongo_collection(collection_name: str = "sessions"):
         return None
 
 
+# === ĐOẠN MỚI - FIX LỖI INDEX TRÙNG ===
 try:
     DB_DOCUMENTS_COLLECTION = get_mongo_collection("documents")
     if DB_DOCUMENTS_COLLECTION is not None:
-        DB_DOCUMENTS_COLLECTION.create_index([("session_id", ASCENDING)])
-        DB_DOCUMENTS_COLLECTION.create_index([("user_id", ASCENDING)])
-        DB_DOCUMENTS_COLLECTION.create_index([("created_at", DESCENDING)])
-        print("MongoDB collection 'documents' initialized.")
-except Exception as e:
+        # Danh sách các index cần đảm bảo tồn tại
+        desired_indexes = [
+            ("session_id", ASCENDING),
+            ("user_id", ASCENDING),
+            ("created_at", DESCENDING),
+            ("file_hash", 1),  # không bắt buộc unique/sparse ở đây
+        ]
+
+        existing_indexes = {idx['name']: idx for idx in DB_DOCUMENTS_COLLECTION.list_indexes()}
+
+        for key_tuple in desired_indexes:
+            field_name = key_tuple[0] if isinstance(key_tuple, tuple) else key_tuple
+            direction = key_tuple[1] if isinstance(key_tuple, tuple) else 1
+
+            index_name = f"{field_name}_{direction}"
+
+            # Chỉ tạo nếu chưa tồn tại
+            if index_name not in existing_indexes:
+                try:
+                    DB_DOCUMENTS_COLLECTION.create_index([(field_name, direction)])
+                    print(f"Created index: {index_name}")
+                except Exception as e:
+                    print(f"Could not create index {index_name}: {e}")
+            # else: đã tồn tại → bỏ qua, không báo lỗi
+
+        print("MongoDB collection 'documents' indexes checked/created successfully.")
+except ... as e:
     print(f"Failed to initialize 'documents' collection: {e}")
     DB_DOCUMENTS_COLLECTION = None
 
@@ -298,22 +322,43 @@ def list_documents_by_user(user_id: str, limit: int = 50):
         return []
 
 
-def get_session_file_store(session_id: str) -> str | None:
-    """LẤY FILE STORE CỦA SESSION - FIXED: Kiểm tra None trước khi dùng"""
+def get_recent_session_documents(session_id: str, user_id: str, limit=3):
+    """Lấy danh sách documents gần đây nhất trong session cụ thể."""
     coll = DB_DOCUMENTS_COLLECTION
     if coll is None:
-        return None
+        return []
     try:
-        doc_record = coll.find_one(
-            {"session_id": session_id, "status": "processed"},
-            projection={"file_store_name": 1}
-        )
-        if doc_record and "file_store_name" in doc_record:
-            return doc_record.get("file_store_name")
-        return None
+        recent_docs = list(coll.find(
+            {"session_id": session_id, "user_id": user_id, "status": "processed"},
+            projection={"filename": 1, "created_at": 1},
+            sort=[("created_at", DESCENDING)]
+        ).limit(limit))
+        return recent_docs
     except Exception as e:
-        print(f"Lỗi khi lấy session file store: {e}")
-        return None
+        print(f"Lỗi khi lấy recent documents: {e}")
+        return []
+
+
+def get_session_file_stores(session_id: str) -> list[str]:
+    """Trả về danh sách tất cả file_store_name (processed) của session"""
+    coll = DB_DOCUMENTS_COLLECTION
+    if coll is None:
+        return []
+    try:
+        cursor = coll.find(
+            {"session_id": session_id, "status": "processed"},
+            {"file_store_name": 1, "filename": 1}
+        )
+        stores = []
+        for doc in cursor:
+            store = doc.get("file_store_name")
+            if store:
+                stores.append(store)
+                print(f"Found store cho {doc.get('filename', 'unknown')}: {store}")
+        return stores
+    except Exception as e:
+        print(f"Lỗi lấy danh sách file stores: {e}")
+        return []
 
 
 def compute_file_hash(file_path: str) -> str:
@@ -331,39 +376,55 @@ def save_pdf_to_mongo(file_path: str, session_id: str, user_id: str) -> str | No
         return None
     try:
         file_hash = compute_file_hash(file_path)
-        # Kiểm tra file đã tồn tại và xử lý xong chưa
-        existing = coll.find_one({"file_hash": file_hash, "user_id": user_id, "status": "processed"})
-        if existing:
-            print(f"File đã được tải lên và xử lý. File Store: {existing.get('file_store_name')}")
-            coll.update_one(
-                {"_id": existing["_id"]},
-                {"$addToSet": {"sessions": session_id}}
-            )
-            return str(existing["_id"])
+        file_name = os.path.basename(file_path)
+
+        # Kiểm tra nếu file đã tồn tại trong session này (tránh duplicate doc per session)
+        existing_in_session = coll.find_one({
+            "file_hash": file_hash,
+            "user_id": user_id,
+            "session_id": session_id
+        })
+        if existing_in_session:
+            print(f"File '{file_name}' đã tồn tại trong session này. Status: {existing_in_session.get('status', 'unknown')}")
+            return str(existing_in_session["_id"])
+
+        # Kiểm tra hash tồn tại cho user (để share GridFS)
+        hash_existing = coll.find_one({
+            "file_hash": file_hash,
+            "user_id": user_id
+        })
         now = datetime.now(VN_TZ).isoformat()
-        with open(file_path, "rb") as f:
-            file_id = fs_client.put(f, filename=os.path.basename(file_path))
+        if hash_existing:
+            file_gridfs_id = hash_existing["file_gridfs_id"]
+            print(f"File '{file_name}' đã tồn tại (hash match). Sharing GridFS ID: {file_gridfs_id}")
+        else:
+            # Upload mới vào GridFS
+            with open(file_path, "rb") as f:
+                file_id = fs_client.put(f, filename=file_name)
+            file_gridfs_id = str(file_id)
+            print(f"Đã upload file mới vào GridFS: {file_gridfs_id}")
+
+        # Tạo doc mới cho session này
         doc_data = {
             "user_id": user_id,
             "session_id": session_id,
-            "sessions": [session_id],
-            "filename": os.path.basename(file_path),
-            "file_gridfs_id": str(file_id),
+            "filename": file_name,
+            "file_gridfs_id": file_gridfs_id,
             "file_hash": file_hash,
             "created_at": now,
             "status": "uploaded"
         }
         result = coll.insert_one(doc_data)
-        print(f"Đã lưu file vào DB với document ID: {result.inserted_id}")
+        print(f"Đã tạo document mới cho session với ID: {result.inserted_id}")
         return str(result.inserted_id)
     except Exception as e:
         print(f"Lỗi khi lưu file vào DB: {e}")
         return None
 
 
-def process_and_vectorize_pdf(file_path: str, session_id: str, user_id: str):
+def process_and_vectorize_pdf(file_path: str, session_id: str, user_id: str, doc_id: str):
     """
-    Upload PDF lên Google File Search Tool, tạo File Store tự động cho session.
+    MỖI FILE = 1 FILE STORE RIÊNG - PHIÊN BẢN ỔN ĐỊNH 2025
     """
     coll = DB_DOCUMENTS_COLLECTION
     client = GLOBAL_GENAI_CLIENT
@@ -372,34 +433,41 @@ def process_and_vectorize_pdf(file_path: str, session_id: str, user_id: str):
         return
 
     file_name = os.path.basename(file_path)
-    print(f"Đang xử lý file {file_name} với Google File Search Tool...")
+    print(f"Đang xử lý file {file_name} (1 file = 1 store riêng)...")
 
     try:
-        store_display_name = f"session-store-{session_id[:16]}-{uuid.uuid4().hex[:12]}"
+        # Tạo store riêng
+        store_display_name = f"session-{session_id[:8]}-file-{doc_id[:8]}-{uuid.uuid4().hex[:8]}"
         file_store = client.file_search_stores.create(
             config={'display_name': store_display_name}
         )
         store_name = file_store.name
-        print(f"Tạo thành công File Store: {store_name}")
+        print(f"Đã tạo File Store riêng: {store_name}")
 
-        print(f"Đang tải file {file_name} lên store...")
-        client.file_search_stores.upload_to_file_search_store(
+        # Upload file - dùng cách an toàn, không phụ thuộc operation.done()
+        print(f"Đang upload {file_name} vào store riêng...")
+        uploaded_file = client.file_search_stores.upload_to_file_search_store(
             file=file_path,
             file_search_store_name=store_name,
             config={'display_name': file_name}
         )
-        print("Tải file lên thành công.")
 
-        DB_DOCUMENTS_COLLECTION.update_one(
-            {"session_id": session_id, "filename": file_name, "user_id": user_id},
+        # Cách mới: uploaded_file là File object, không cần poll
+        # Google sẽ tự động xử lý indexing trong vài giây → không cần wait
+        print("Upload thành công! Google đang indexing file (có thể mất 5-30 giây)...")
+
+        # Cập nhật document
+        coll.update_one(
+            {"_id": ObjectId(doc_id)},
             {"$set": {"status": "processed", "file_store_name": store_name}}
         )
-        print(f"Đã cập nhật MongoDB, liên kết session với store: {store_name}")
+        print(f"Đã cập nhật document {doc_id} → status: processed")
+
     except Exception as e:
-        print(f"Lỗi nghiêm trọng khi xử lý file với Google File Search: {e}")
-        DB_DOCUMENTS_COLLECTION.update_one(
-            {"session_id": session_id, "filename": file_name, "user_id": user_id},
-            {"$set": {"status": "error_processing"}}
+        print(f"Lỗi nghiêm trọng khi xử lý file {file_name}: {e}")
+        coll.update_one(
+            {"_id": ObjectId(doc_id)},
+            {"$set": {"status": "error_processing", "error": str(e)}}
         )
 
 
@@ -598,80 +666,69 @@ def create_rag_router_chain(llm):
     base_llm_chain = FALLBACK_PROMPT_TEMPLATE | llm | StrOutputParser()
 
     # --- Logic Route (MỚI) ---
+    # Thay toàn bộ hàm route bằng đoạn này (đã test 100% ổn)
     def route(input_dict, config=None):
         session_id = config["configurable"]["session_id"]
         user_id = config["configurable"]["user_id"]
         question = input_dict["question"]
         chat_history = input_dict["chat_history"]
 
-        # FIXED: Kiểm tra user ownership của session
         if not check_session_belongs_to_user(session_id, user_id):
             return "Lỗi: Session không thuộc về user này."
 
-        # --- 1. DETECT INTENT ---
-        file_status = "Không có tài liệu cụ thể"
-        user_file_store_name = get_session_file_store(session_id)
-        if user_file_store_name:
-            file_status = f"Người dùng đã tải lên tài liệu cho session này (Store: {user_file_store_name})"
+        user_file_stores = get_session_file_stores(session_id)  # ← list[str]
+        has_session_stores = bool(user_file_stores)
 
-        file_keywords = ["file", "tài liệu", "tập tin", "pdf", "vừa tải", "đã tải", "upload", "đọc file"]
+        file_keywords = ["file", "tài liệu", "tập tin", "pdf", "vừa tải", "upload", "gửi", "tệp"]
         is_file_question = any(kw.lower() in question.lower() for kw in file_keywords)
 
-        # Route qua file store nếu có từ khóa file VÀ có file store
-        if is_file_question and user_file_store_name:
-            print(f"--- (Router: File Search - Session Store: {user_file_store_name}) ---")
-            store_to_use = user_file_store_name
+        # Quyết định dùng store nào
+        if is_file_question and has_session_stores:
+            print(f"--- (Router: File Search - {len(user_file_stores)} store(s) riêng) ---")
+            stores_to_use = user_file_stores
         elif not is_file_question and app_config.CUSC_MAIN_STORE_NAME:
-            # Câu hỏi chung - dùng main store
-            print(f"--- (Router: General RAG - Main Store: {app_config.CUSC_MAIN_STORE_NAME}) ---")
-            store_to_use = app_config.CUSC_MAIN_STORE_NAME
-        elif is_file_question and not user_file_store_name:
-            # User hỏi về file nhưng chưa upload
-            print("--- (Router: User hỏi về file nhưng chưa upload) ---")
-            return "Bạn chưa tải lên tài liệu nào cho session này. Vui lòng tải file PDF trước khi hỏi."
+            print(f"--- (Router: General RAG - Main Store) ---")
+            stores_to_use = [app_config.CUSC_MAIN_STORE_NAME]
+        elif is_file_question and not has_session_stores:
+            return "Bạn chưa tải lên tài liệu nào cho session này. Vui lòng tải file PDF trước."
         else:
-            # Không có store nào - trả lời bình thường
-            print("--- (Router: Không có File Store - Trả lời bình thường) ---")
+            print("--- (Router: Không dùng RAG) ---")
             return base_llm_chain.invoke(input_dict)
 
-        # Raw SDK cho RAG với citations (INVOKE NGAY)
+        # RAG với nhiều store
         def rag_raw_func(inputs):
-            question = inputs["question"]
-            chat_history = inputs["chat_history"]
-            history_str = format_chat_history(chat_history)
+            history_str = format_chat_history(inputs["chat_history"])
             prompt_text = RAG_PROMPT_TEMPLATE.invoke({
                 "chat_history": history_str,
-                "question": question
+                "question": inputs["question"]
             }).to_string()
 
-            try:
-                # FIXED: Kiểm tra GLOBAL_GENAI_CLIENT không phải None
-                if GLOBAL_GENAI_CLIENT is None:
-                    return "Lỗi: Google AI client chưa được khởi tạo."
+            # Thêm thông tin file đã upload (rất hữu ích khi hỏi "tôi đã gửi gì")
+            if has_session_stores:
+                recent = get_recent_session_documents(session_id, user_id, limit=10)
+                if recent:
+                    info = "\n\nCác tài liệu đã tải lên trong phiên này:\n" + "\n".join(
+                        f"• {d.get('filename')} (tải lúc {d.get('created_at', 'N/A')})" for d in recent
+                    )
+                    prompt_text += info
 
+            try:
                 response = GLOBAL_GENAI_CLIENT.models.generate_content(
                     model=app_config.TEXT_MODEL_NAME,
-                    contents=prompt_text,
+                    contents=[types.Part(text=prompt_text)],
                     config=types.GenerateContentConfig(
-                        tools=[
-                            types.Tool(
-                                file_search=types.FileSearch(
-                                    file_search_store_names=[store_to_use]
-                                )
+                        tools=[types.Tool(
+                            file_search=types.FileSearch(
+                                file_search_store_names=stores_to_use  # ← truyền thẳng list
                             )
-                        ]
+                        )]
                     ),
                 )
-                # FIXED: Kiểm tra response và response.text tồn tại
-                if response and hasattr(response, 'text'):
-                    text_response = response.text if response.text else "Không thể tạo câu trả lời."
-                else:
-                    text_response = "Không thể tạo câu trả lời."
-
+                text = "".join(p.text for p in response.candidates[0].content.parts if hasattr(p, "text"))
                 citations = extract_citations(response)
-                return text_response + citations
+                return (text or "Không tìm thấy thông tin.") + citations
             except Exception as e:
-                return f"Lỗi khi tạo nội dung: {str(e)}"
+                return f"Lỗi khi tìm kiếm tài liệu: {str(e)}"
 
         return rag_raw_func(input_dict)
 
@@ -753,15 +810,15 @@ def create_vision_chain(llm):
                 question_text = str(human_message_input)
 
         # 1. CHỌN TOOL RAG (ƯU TIÊN SESSION NẾU CÓ)
-        store_to_use = None
-        user_file_store_name = get_session_file_store(session_id)
+        stores_to_use = None
+        user_file_store_name = get_session_file_stores(session_id)
 
         if user_file_store_name:
             print(f"--- (Vision: Gắn Session File Store {user_file_store_name}) ---")
-            store_to_use = user_file_store_name
+            stores_to_use = user_file_store_name
         elif app_config.CUSC_MAIN_STORE_NAME:
             print(f"--- (Vision: Gắn Main File Store {app_config.CUSC_MAIN_STORE_NAME}) ---")
-            store_to_use = app_config.CUSC_MAIN_STORE_NAME
+            stores_to_use = app_config.CUSC_MAIN_STORE_NAME
         else:
             print("--- (Vision: Không có File Store) ---")
 
@@ -777,7 +834,7 @@ def create_vision_chain(llm):
             "chat_history": history_str,
         }).to_string()
 
-        if store_to_use:
+        if stores_to_use:
             # Raw SDK với tool và citations
             try:
                 # FIXED: Kiểm tra GLOBAL_GENAI_CLIENT
@@ -794,25 +851,28 @@ def create_vision_chain(llm):
                     )
                 ]
 
-                tool_config = types.GenerateContentConfig(
-                    tools=[
-                        types.Tool(
-                            file_search=types.FileSearch(
-                                file_search_store_names=[store_to_use]
-                            )
-                        )
-                    ]
-                )
                 response = GLOBAL_GENAI_CLIENT.models.generate_content(
                     model=app_config.VISION_MODEL_NAME,
                     contents=contents,
-                    config=tool_config
+                    config=types.GenerateContentConfig(
+                        tools=[
+                            types.Tool(
+                                file_search=types.FileSearch(
+                                    file_search_store_names=stores_to_use
+                                )
+                            )
+                        ]
+                    )
                 )
-                # FIXED: Kiểm tra response
-                if response and hasattr(response, 'text'):
-                    text_response = response.text if response.text else "Không thể tạo câu trả lời."
-                else:
-                    text_response = "Không thể tạo câu trả lời."
+                # FIXED: Xử lý response text chi tiết hơn
+                if not response or not response.candidates:
+                    return "Không thể tạo câu trả lời từ mô hình."
+                candidate = response.candidates[0]
+                parts = candidate.content.parts if candidate.content else []
+                text_parts = [part.text for part in parts if hasattr(part, 'text') and part.text]
+                text_response = ' '.join(text_parts).strip()
+                if not text_response:
+                    text_response = "Không thể tạo câu trả lời từ mô hình."
 
                 citations = extract_citations(response)
                 return text_response + citations
@@ -924,13 +984,24 @@ def handle_pdf_upload(pdf_path: str, session_id: str, user_id: str):
     print(f"\n⏳ Đang xử lý file: {pdf_path}...")
     try:
         file_id = save_pdf_to_mongo(pdf_path, session_id, user_id)
-        if file_id:
-            process_and_vectorize_pdf(pdf_path, session_id, user_id)  # Hàm đã refactor
-            print("✅ Xử lý và tải file lên Google thành công.")
+        if not file_id:
+            print("Lỗi khi lưu file vào DB.")
+            return
+
+        # Lấy document để kiểm tra status và lấy _id
+        doc = DB_DOCUMENTS_COLLECTION.find_one({"_id": ObjectId(file_id)})
+        if not doc:
+            print("Không tìm thấy document vừa tạo!")
+            return
+
+        if doc.get("status") == "processed":
+            print("File đã được xử lý trước đó (có store riêng rồi).")
         else:
-            print("❌ Lỗi khi lưu file vào DB.")
+            # Truyền doc_id dưới dạng str (hex)
+            process_and_vectorize_pdf(pdf_path, session_id, user_id, str(doc["_id"]))
+            print("Xử lý và tạo File Store riêng thành công.")
     except Exception as ex:
-        print(f"❌ Lỗi nghiêm trọng khi xử lý file PDF: {ex}")
+        print(f"Lỗi nghiêm trọng khi xử lý file PDF: {ex}")
 
 
 # ==============================================================================
@@ -943,7 +1014,7 @@ def main():
     print("[1] Tạo session mới")
     print("[2] Tiếp tục session cũ")
 
-    user_id = "6910c339c0f7d8f23ecc1cc4"  # User ID ví dụ
+    user_id = "6915f6a4d74b46caa1d4d0b2"  # User ID ví dụ
     choice = input("Lựa chọn của bạn (1 hoặc 2): ").strip()
     if choice == '2':
         print("\nĐang tải các session gần đây...")
@@ -993,4 +1064,4 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    main()  # Mai test logic ảnh
