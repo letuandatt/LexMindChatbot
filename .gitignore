@@ -1,4 +1,5 @@
 __pycache__
+.idea
 chatbot/data
 chatbot/.env
 chatbot/__pycache__
