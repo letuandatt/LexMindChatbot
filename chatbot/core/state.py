@@ -9,5 +9,7 @@ class AgentState(TypedDict):
     # Ai là người vừa thực hiện hành động cuối cùng (Supervisor hay Worker?)
     next: str
 
+    user_info: str
+
     # Đường dẫn ảnh
     image_path: str | None

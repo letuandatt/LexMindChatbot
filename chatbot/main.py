@@ -1,27 +1,23 @@
 import os
 import uuid
+import time
 import google.genai as genai
 from bson.objectid import ObjectId
-from chatbot.config import config as app_config
+from langchain_core.messages import HumanMessage
 
-# Core Imports
+from chatbot.config import config as app_config
 from chatbot.core.db import init_db, DB_DOCUMENTS_COLLECTION
 from chatbot.core.history import list_sessions, get_session_history, save_session_message
-from chatbot.core.file_store import save_pdf_to_mongo, process_and_vectorize_pdf
+from chatbot.core.file_store import save_pdf_to_mongo
+from chatbot.core.watcher import app_watcher
+from chatbot.core.memory_profile import build_user_memory  # Import memory
 
-# Services & Router
 from chatbot.services.vision_service import VisionService
 from chatbot.router.dispatcher import build_rag_agent
-
-from langchain_core.messages import HumanMessage
 
 
 # --- SERVICE CONTAINER ---
 class AppContainer:
-    """
-    Quản lý khởi tạo Client và các Service (Singleton-like)
-    """
-
     def __init__(self):
         init_db()
         try:
@@ -31,94 +27,101 @@ class AppContainer:
             print(f"[App] GenAI Client Init Failed: {e}")
             self.genai_client = None
 
-        # Init Vision Service
+        # Init Vision
         self.vision_service = VisionService(self.genai_client)
 
-        # Init Agent
+        # Init Agent & Memory
         if self.genai_client:
             self.agent_executor, self.text_llm = build_rag_agent(self.genai_client, self.vision_service)
+            self.memory_service = build_user_memory(self.text_llm)
         else:
             self.agent_executor = None
-            self.text_llm = None
+            self.memory_service = None
+
+        # Start Watcher (Để xử lý file ngầm)
+        app_watcher.start()
 
 
-# Khởi tạo App toàn cục
 APP = AppContainer()
 
 
 # --- HELPER FUNCTIONS ---
 def handle_pdf_upload(pdf_path: str, session_id: str, user_id: str):
-    print(f"[main] Uploading file for session {session_id} ...")
-    file_id = save_pdf_to_mongo(pdf_path, session_id, user_id)  #
+    """
+    Chỉ lưu file vào DB/GridFS. Việc xử lý (Vectorize) do Watcher làm.
+    """
+    print(f"[main] Đang tải file lên hệ thống: {os.path.basename(pdf_path)}...")
+
+    # 1. Lưu vào MongoDB (Status = 'uploaded')
+    file_id = save_pdf_to_mongo(pdf_path, session_id, user_id)
+
     if not file_id:
-        print("[main] save failed.")
+        print("❌ [main] Lưu file thất bại.")
         return
 
-    # Check status
-    try:
-        doc = DB_DOCUMENTS_COLLECTION.find_one({"_id": ObjectId(file_id)})
-    except Exception:
-        doc = None
+    print("✅ [main] Đã lưu file. Hệ thống đang xử lý ngầm (Watcher)...")
 
-    if doc and doc.get("status") == "processed":
-        print("[main] File already processed.")
-    else:
-        # Sử dụng Client từ APP Container
-        process_and_vectorize_pdf(pdf_path, session_id, str(doc["_id"]), APP.genai_client)  #
-        print("[main] Processed and created file store.")
+    # (Optional) Chờ một chút để Watcher kịp bắt sự kiện và in log cho đẹp trên CLI
+    # Trên thực tế (API) thì return luôn không cần chờ.
+    time.sleep(1)
 
 
 def handle_unified_query(query_text: str, image_path: str | None, user_id: str, session_id: str):
-    """
-    Hàm xử lý duy nhất cho cả Text và Ảnh (Unified Entry Point).
-    """
     print("--- Processing by Multi-Agent Graph ---")
     if not APP.agent_executor:
         print("Agent not ready.")
         return
     try:
-        # Chuẩn bị input cho Graph
+        # 1. Lấy User Profile
+        user_profile = APP.memory_service.get_profile(user_id)
+
+        # 2. Input
         inputs = {
             "messages": [HumanMessage(content=query_text)],
-            "image_path": image_path # Truyền ảnh vào State
+            "user_info": user_profile or "Chưa có thông tin.",
+            "image_path": image_path
         }
 
-        # Gọi Graph
-        result = APP.agent_executor.invoke(inputs, config={"configurable": {"session_id": session_id, "user_id": user_id}})
+        # 3. Invoke Graph
+        result = APP.agent_executor.invoke(inputs,
+                                           config={"configurable": {"session_id": session_id, "user_id": user_id}})
 
-        # Lấy tin nhắn cuối cùng
+        # 4. Output
         last_message = result["messages"][-1]
         full_response = last_message.content
         bot_name = last_message.name if hasattr(last_message, 'name') else 'Bot'
 
         print(f"\n🤖 {bot_name}: {full_response}\n")
 
-        # Lưu lịch sử (bao gồm cả việc có ảnh hay không)
-        # Lưu ý: Ta lưu đường dẫn ảnh vào DB để sau này Frontend hiển thị lại
+        # 5. Save History & Update Profile
         save_session_message(session_id, user_id, query_text, full_response, image_gridfs_id=image_path)
+        APP.memory_service.update_profile_background(user_id, query_text)
+
     except Exception as e:
         print(f"[main] Agent error: {e}")
 
 
-# --- MAIN FUNCTION (UPDATED) ---
+# --- MAIN LOOP ---
 def main():
-    print("🤖 Chatbot CUSC (Agent + Google File Search) sẵn sàng!")
+    print("🤖 Chatbot CUSC (Unified Multi-Agent) sẵn sàng!")
     print("=" * 30)
+
+    # Mock User ID (Trong thực tế lấy từ Authen)
+    user_id = "6915f6a4d74b46caa1d4d0b2"
+
     print("[1] Tạo session mới")
     print("[2] Tiếp tục session cũ")
-
-    user_id = "6915f6a4d74b46caa1d4d0b2"
-    choice = input("Lựa chọn của bạn (1 hoặc 2): ").strip()
+    choice = input("Lựa chọn (1/2): ").strip()
 
     if choice == '2':
-        sessions = list_sessions(limit=10, user_id=user_id)  #
+        sessions = list_sessions(limit=10, user_id=user_id)
         if not sessions:
             session_id = str(uuid.uuid4())
         else:
             for i, s in enumerate(sessions):
-                print(f"  [{i + 1}] {s['session_id']} ({s['num_messages']} tin nhắn, cập nhật: {s['updated_at']})")
+                print(f"  [{i + 1}] {s['session_id']} ({s['num_messages']} msgs)")
             try:
-                s_choice = int(input("Chọn session (0 để tạo mới): ").strip())
+                s_choice = int(input("Chọn (0=Mới): ").strip())
                 if 0 < s_choice <= len(sessions):
                     session_id = sessions[s_choice - 1]['session_id']
                 else:
@@ -131,12 +134,12 @@ def main():
     print(f"\n🆔 Session ID: {session_id}")
     print("Gõ 'pdf' để tải file, 'exit' để thoát.\n")
 
-    get_session_history(session_id, user_id)  # Pre-load history
+    # Load lại lịch sử để Agent có context
+    get_session_history(session_id, user_id)
 
     while True:
         user_input = input("\n👤 Bạn: ")
-        if user_input.lower() == "exit":
-            break
+        if user_input.lower() == "exit": break
 
         if user_input.lower() == "pdf":
             path = input("📂 PDF Path: ").strip().replace('"', '')
@@ -153,9 +156,15 @@ def main():
             print("⚠️ File ảnh không tồn tại. Tiếp tục chỉ với text.")
             img_path = None
 
-        # Gọi hàm xử lý duy nhất
         handle_unified_query(user_input, img_path, user_id, session_id)
 
 
 if __name__ == "__main__":
-    main()
+    try:
+        main()
+    except KeyboardInterrupt:
+        app_watcher.stop()
+        print("\nGoodbye!")
+    except Exception as e:
+        app_watcher.stop()
+        print(f"[main] Fatal Error: {e}")
