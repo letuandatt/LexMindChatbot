@@ -26,8 +26,16 @@ def create_agent_executor(llm, tools):
     agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True, handle_parsing_errors=True, max_iterations=5)
 
     def _prepare_agent_input(input_dict, config):
-        session_id = config.get("configurable", {}).get("session_id")
-        return {"input": f"[Session: {session_id}]\n{input_dict['question']}", "chat_history": input_dict.get("chat_history", [])}
+        conf = config.get("configurable")
+        session_id = conf.get("session_id")
+        user_id = conf.get("user_id")
+
+        context_str = f"CONTEXT: [SessionID: {session_id}] [UserID: {user_id}]"
+
+        return {
+            "input": f"{context_str}\n{input_dict['question']}",
+            "chat_history": input_dict.get("chat_history", [])
+        }
 
     def get_history_wrapper(session_id: str, user_id: str):
         return load_session_messages(session_id, user_id)
