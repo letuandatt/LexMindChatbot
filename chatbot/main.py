@@ -36,7 +36,7 @@ class AppContainer:
 
         # Init Agent
         if self.genai_client:
-            self.agent_executor, self.text_llm = build_rag_agent(self.genai_client)
+            self.agent_executor, self.text_llm = build_rag_agent(self.genai_client, self.vision_service)
         else:
             self.agent_executor = None
             self.text_llm = None
@@ -68,26 +68,34 @@ def handle_pdf_upload(pdf_path: str, session_id: str, user_id: str):
         print("[main] Processed and created file store.")
 
 
-def handle_text_query(query_text: str, user_id: str, session_id: str):
-    print("--- Processing by Multi-Agent System ---")
+def handle_unified_query(query_text: str, image_path: str | None, user_id: str, session_id: str):
+    """
+    Hàm xử lý duy nhất cho cả Text và Ảnh (Unified Entry Point).
+    """
+    print("--- Processing by Multi-Agent Graph ---")
     if not APP.agent_executor:
         print("Agent not ready.")
         return
     try:
-        # LangGraph input là một list messages
-        inputs = {"messages": [HumanMessage(content=query_text)]}
+        # Chuẩn bị input cho Graph
+        inputs = {
+            "messages": [HumanMessage(content=query_text)],
+            "image_path": image_path # Truyền ảnh vào State
+        }
 
         # Gọi Graph
-        # config dùng để quản lý state nếu cần (nhưng ở đây state lưu trong graph memory tạm)
         result = APP.agent_executor.invoke(inputs, config={"configurable": {"session_id": session_id, "user_id": user_id}})
 
-        # Lấy tin nhắn cuối cùng của AI
+        # Lấy tin nhắn cuối cùng
         last_message = result["messages"][-1]
         full_response = last_message.content
+        bot_name = last_message.name if hasattr(last_message, 'name') else 'Bot'
 
-        print(f"\n🤖 Bot ({last_message.name if hasattr(last_message, 'name') else 'Assistant'}): {full_response}\n")
+        print(f"\n🤖 {bot_name}: {full_response}\n")
 
-        save_session_message(session_id, user_id, query_text, full_response)
+        # Lưu lịch sử (bao gồm cả việc có ảnh hay không)
+        # Lưu ý: Ta lưu đường dẫn ảnh vào DB để sau này Frontend hiển thị lại
+        save_session_message(session_id, user_id, query_text, full_response, image_gridfs_id=image_path)
     except Exception as e:
         print(f"[main] Agent error: {e}")
 
@@ -139,12 +147,14 @@ def main():
             continue
 
         img_path = input("🖼️ Ảnh Path (Enter để bỏ qua): ").strip().replace('"', '')
-        if img_path and os.path.exists(img_path):
-            # [Refactor] Sử dụng VisionService từ APP Container thay vì hàm rời rạc cũ
-            vision_resp = APP.vision_service.process_image_query(session_id, user_id, user_input, img_path)
-            print(f"\n🤖 Vision: {vision_resp}\n")
-        else:
-            handle_text_query(user_input, user_id, session_id)
+        if img_path == "":
+            img_path = None
+        elif not os.path.exists(img_path):
+            print("⚠️ File ảnh không tồn tại. Tiếp tục chỉ với text.")
+            img_path = None
+
+        # Gọi hàm xử lý duy nhất
+        handle_unified_query(user_input, img_path, user_id, session_id)
 
 
 if __name__ == "__main__":

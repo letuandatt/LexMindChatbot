@@ -4,9 +4,10 @@ from chatbot.tools.tool_search_uploaded import build_tool_search_uploaded
 from chatbot.tools.tool_list_files import tool_list_uploaded_files
 from chatbot.llm.llm_text import create_text_llm
 from chatbot.router.graph_builder import build_multi_agent_graph
+from chatbot.services.vision_service import VisionService
 
 
-def build_rag_agent(genai_client):
+def build_rag_agent(genai_client, vision_service):
     # 1. Init Components
     text_llm = create_text_llm()
     rag_pipeline = AdvancedRagPipeline(genai_client, text_llm)
@@ -23,7 +24,8 @@ def build_rag_agent(genai_client):
     app_graph = build_multi_agent_graph(
         text_llm=text_llm,
         tools_policy=[tool_policy],
-        tools_personal=[tool_uploaded, tool_list_uploaded_files]
+        tools_personal=[tool_uploaded, tool_list_uploaded_files],
+        vision_service=vision_service
     )
 
     return app_graph, text_llm
