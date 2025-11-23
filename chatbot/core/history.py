@@ -27,7 +27,7 @@ def save_session_message(session_id: str, user_id: str, question: str, answer: s
         coll.update_one(
             {"session_id": session_id},
             {
-                "$push": {"messages": {"$each": [message_data], "$slice": -MAX_HISTORY}},
+                "$push": {"messages": message_data},
                 "$set": {"updated_at": now},
                 "$setOnInsert": {"user_id": user_id, "created_at": now}
             },
@@ -40,7 +40,7 @@ def save_session_message(session_id: str, user_id: str, question: str, answer: s
         except Exception as ex:
             print(f"[core.history.save_session_message fallback] {ex}")
 
-def load_session_messages(session_id: str, user_id: str, limit: int = 100):
+def load_session_messages(session_id: str, user_id: str, limit: int = 25):
     coll = get_mongo_collection("sessions")
     if coll is None:
         return InMemoryChatMessageHistory()

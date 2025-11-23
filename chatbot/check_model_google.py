@@ -9,3 +9,16 @@ models = client.models.list()
 
 for m in models:
     print(m.name)
+
+try:
+    client.models.generate_content(
+        model="gemini-2.5-pro",
+        contents="ping",
+        config=genai.types.GenerateContentConfig(max_output_tokens=1)
+    )
+    print("Model is now available!")
+except Exception as e:
+    if "quota" in str(e).lower() or "exceeded" in str(e).lower():
+        print("Still not available (quota = 0)")
+    else:
+        print("Other error:", e)

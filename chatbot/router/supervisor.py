@@ -1,15 +1,18 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from langchain.output_parsers.openai_tools import JsonOutputKeyToolsParser
+from langchain_core.output_parsers.openai_tools import JsonOutputKeyToolsParser
 
 
 def create_supervisor_node(llm, members: list[str]):
     system_prompt = (
-        "Bạn là người quản lý giám sát (Supervisor) của một hệ thống chatbot CUSC.\n"
-        "Nhiệm vụ của bạn là đọc cuộc hội thoại và quyết định xem ai sẽ hành động tiếp theo.\n"
-        "Các thành viên (Workers) gồm: {members}.\n"
-        " - Dùng 'PolicyResearcher' cho các câu hỏi về quy định chung, thủ tục, ISO.\n"
-        " - Dùng 'PersonalAnalyst' cho các câu hỏi về file tài liệu người dùng tải lên.\n"
-        " - Nếu đã có câu trả lời cuối cùng hoặc câu hỏi chào hỏi xã giao, hãy chọn 'FINISH'."
+        "Bạn là Supervisor của chatbot nội bộ CUSC. Nhiệm vụ là định tuyến chính xác.\n"
+        "Các thành viên (Workers): {members}.\n\n"
+        "QUY TẮC ĐIỀU PHỐI (NGHIÊM NGẶT):\n"
+        "1. 'PolicyResearcher': Dùng cho câu hỏi chuyên môn, quy định, quy trình, thủ tục, ISO, hoặc kiến thức công việc.\n"
+        "2. 'PersonalAnalyst': Dùng cho câu hỏi về File upload hoặc lịch sử chat.\n"
+        "3. 'GeneralResponder': CHỈ DÙNG cho các câu CHÀO HỎI XÃ GIAO ('Xin chào', 'Cảm ơn', 'Bye') hoặc hỏi về DANH TÍNH BOT ('Bạn là ai').\n"
+        "   - CẢNH BÁO: Nếu người dùng hỏi kiến thức bên ngoài (Ví dụ: 'Thủ đô Paris?', 'Cách nấu ăn?', 'Viết code Python'), HÃY CHỌN 'PolicyResearcher' (để hệ thống tìm trong tài liệu nội bộ, nếu không thấy sẽ báo không có).\n"
+        "   - TUYỆT ĐỐI KHÔNG dùng GeneralResponder để trả lời kiến thức không liên quan CUSC.\n\n"
+        "Chọn 'FINISH' nếu đã xong."
     )
 
     options = ["FINISH"] + members
@@ -19,7 +22,6 @@ def create_supervisor_node(llm, members: list[str]):
         "name": "route",
         "description": "Select the next role.",
         "parameters": {
-            # "title": "routeSchema",  <-- Đã xóa dòng này để tránh Warning
             "type": "object",
             "properties": {
                 "next": {
@@ -33,9 +35,6 @@ def create_supervisor_node(llm, members: list[str]):
         },
     }
 
-    # --- SỬA LỖI TẠI ĐÂY ---
-    # Đổi ("system", "Với tình huống...") thành ("human", "Với tình huống...")
-    # Vì Gemini không cho phép SystemMessage nằm sau HumanMessage
     prompt = ChatPromptTemplate.from_messages([
         ("system", system_prompt),
         MessagesPlaceholder(variable_name="messages"),
@@ -44,9 +43,9 @@ def create_supervisor_node(llm, members: list[str]):
 
     # Supervisor chain
     supervisor_chain = (
-            prompt
-            | llm.bind_tools(tools=[function_def], tool_choice="route")
-            | JsonOutputKeyToolsParser(key_name="route", first_tool_only=True)
+        prompt
+        | llm.bind_tools(tools=[function_def], tool_choice="route")
+        | JsonOutputKeyToolsParser(key_name="route", first_tool_only=True)
     )
 
     return supervisor_chain

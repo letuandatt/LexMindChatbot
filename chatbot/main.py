@@ -36,9 +36,10 @@ class AppContainer:
 
         # Init Agent
         if self.genai_client:
-            self.agent_executor, self.text_llm = build_rag_agent(self.genai_client)  #
+            self.agent_executor, self.text_llm = build_rag_agent(self.genai_client)
         else:
             self.agent_executor = None
+            self.text_llm = None
 
 
 # Khởi tạo App toàn cục
