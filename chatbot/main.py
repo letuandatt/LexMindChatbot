@@ -2,15 +2,14 @@ import os
 import uuid
 import time
 import google.genai as genai
-from bson.objectid import ObjectId
 from langchain_core.messages import HumanMessage
 
 from chatbot.config import config as app_config
-from chatbot.core.db import init_db, DB_DOCUMENTS_COLLECTION
+from chatbot.core.db import init_db
 from chatbot.core.history import list_sessions, get_session_history, save_session_message
 from chatbot.core.file_store import save_pdf_to_mongo
 from chatbot.core.watcher import app_watcher
-from chatbot.core.memory_profile import build_user_memory  # Import memory
+from chatbot.core.memory_profile import build_user_memory
 
 from chatbot.services.vision_service import VisionService
 from chatbot.router.dispatcher import build_rag_agent

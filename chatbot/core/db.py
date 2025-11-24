@@ -53,6 +53,7 @@ def init_db():
         print(f"[core.db] Failed to initialize MongoDB: {e}")
         _mongo_client = _mongo_db = DB_COLLECTION = DB_DOCUMENTS_COLLECTION = FS = None
 
+
 # initialize on import
 init_db()
 
