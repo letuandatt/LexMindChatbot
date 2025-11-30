@@ -10,7 +10,7 @@ def build_tool_search_policy(rag_pipeline):
         """
         Dùng để tra cứu các QUY ĐỊNH CHUNG, QUY TRÌNH, THỦ TỤC, BIỂU MẪU, HƯỚNG DẪN của tổ chức (CUSC).
         """
-        if not app_config.CUSC_MAIN_STORE_NAME:
+        if not app_config.LAW_MAIN_STORE_NAME:
             return "Hệ thống chưa được cấu hình Main Store."
 
         cache_k = app_cache.generate_key("policy", "adv", query)
@@ -21,7 +21,7 @@ def build_tool_search_policy(rag_pipeline):
         try:
             result = rag_pipeline.run_pipeline(
                 original_query=query,
-                store_names=[app_config.CUSC_MAIN_STORE_NAME]
+                store_names=[app_config.LAW_MAIN_STORE_NAME]
             )
 
             app_cache.set(cache_k, result, ttl=3600)
