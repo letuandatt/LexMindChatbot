@@ -1,7 +1,3 @@
-"""
-Kết nối MongoDB + GridFS, expose helper get_mongo_collection.
-Gọi init_db() khi import để khởi tạo kết nối.
-"""
 from pymongo import MongoClient, ASCENDING, DESCENDING
 import gridfs
 from chatbot.config import config as app_config

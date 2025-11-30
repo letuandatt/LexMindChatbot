@@ -1,7 +1,3 @@
-"""
-Session message persistence helpers (save/load) using MongoDB 'sessions' collection.
-Keeps message history truncated to MAX_HISTORY.
-"""
 from datetime import datetime
 from chatbot.core.db import get_mongo_collection
 from langchain_core.messages import HumanMessage, AIMessage

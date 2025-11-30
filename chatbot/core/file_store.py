@@ -1,8 +1,3 @@
-"""
-PDF file persistence helpers: save to GridFS, manage documents collection,
-process -> create Google File Search store (process_and_vectorize_pdf).
-Note: process_and_vectorize_pdf requires a genai client passed in (to avoid circular imports).
-"""
 import os
 import uuid
 from datetime import datetime

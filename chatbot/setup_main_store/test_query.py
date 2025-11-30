@@ -6,7 +6,7 @@ from chatbot.config import config
 
 # --- Hằng số từ Config ---
 GOOGLE_API_KEY = config.GOOGLE_API_KEY
-STORE_NAME = config.CUSC_MAIN_STORE_NAME
+STORE_NAME = config.LAW_MAIN_STORE_NAME
 
 
 def test_query(client, store_name, test_question):
@@ -41,7 +41,7 @@ def test_query(client, store_name, test_question):
         # Kiểm tra xem có metadata, support, và chunk không
         if not (metadata and metadata.grounding_supports and metadata.grounding_chunks):
             print("(Không tìm thấy thông tin trích dẫn chi tiết)")
-            return  # Kết thúc hàm sớm
+            # return  # Kết thúc hàm sớm
 
         # 1. Lấy danh sách TẤT CẢ chunk (để tra cứu tên file)
         all_chunks = metadata.grounding_chunks
@@ -85,7 +85,7 @@ def test_query(client, store_name, test_question):
 if __name__ == '__main__':
     # 1. Kiểm tra xem file .env đã được cập nhật chưa
     if not STORE_NAME:
-        print("❌ LỖI: CUSC_MAIN_STORE_NAME bị trống trong file .env.")
+        print("❌ LỖI: LAW_MAIN_STORE_NAME bị trống trong file .env.")
         print("Vui lòng chạy 'python setup_main_store.py' trước và cập nhật file .env.")
         sys.exit()  # Thoát
 
@@ -99,7 +99,7 @@ if __name__ == '__main__':
     # 3. Lấy câu hỏi
     test_question = input("Nhập câu hỏi test (Enter để dùng câu mặc định): ")
     if not test_question.strip():
-        test_question = "Mục đích của thủ tục kiểm định TT07.05.I là gì?"
+        test_question = "Theo chỉ thị 12/CT-TTg năm 2022, việc quán triệt chủ trương phát triển kinh tế đi đôi với cái gì?"
         print(f"Sử dụng câu hỏi mặc định: {test_question}")
 
     # 4. Chạy test

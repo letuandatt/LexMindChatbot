@@ -4,7 +4,6 @@ from langchain_core.messages import AIMessage
 from chatbot.core.state import AgentState
 from chatbot.router.supervisor import create_supervisor_node
 from chatbot.llm.agent_react import create_agent_executor
-from chatbot.services import vision_service
 
 
 # Helper tạo node worker chuyên môn (có Tools)
@@ -75,14 +74,14 @@ def build_multi_agent_graph(text_llm, tools_policy, tools_personal, vision_servi
     Xây dựng đồ thị Multi-Agent với Adaptive Routing.
     """
     # Thêm GeneralResponder vào danh sách
-    members = ["VisionAnalyst", "PolicyResearcher", "PersonalAnalyst", "GeneralResponder"]
+    members = ["VisionAnalyst", "LawResearcher", "PersonalAnalyst", "GeneralResponder"]
 
     # 1. Supervisor
     supervisor_chain = create_supervisor_node(text_llm, members)
 
     # 2. Policy Agent (Nặng - Có Search)
     policy_agent = create_agent_executor(text_llm, tools_policy)
-    policy_node = create_worker_node(policy_agent, "PolicyResearcher")
+    law_node = create_worker_node(policy_agent, "LawResearcher")
 
     # 3. Personal Agent (Nặng - Có Search)
     personal_agent = create_agent_executor(text_llm, tools_personal)
@@ -98,7 +97,7 @@ def build_multi_agent_graph(text_llm, tools_policy, tools_personal, vision_servi
     workflow = StateGraph(AgentState)
 
     workflow.add_node("Supervisor", supervisor_chain)
-    workflow.add_node("PolicyResearcher", policy_node)
+    workflow.add_node("LawResearcher", law_node)
     workflow.add_node("PersonalAnalyst", personal_node)
     workflow.add_node("GeneralResponder", general_node)
     workflow.add_node("VisionAnalyst", vision_node)
@@ -110,7 +109,7 @@ def build_multi_agent_graph(text_llm, tools_policy, tools_personal, vision_servi
         "Supervisor",
         lambda x: x["next"],
         {
-            "PolicyResearcher": "PolicyResearcher",
+            "LawResearcher": "LawResearcher",
             "PersonalAnalyst": "PersonalAnalyst",
             "GeneralResponder": "GeneralResponder",
             "VisionAnalyst": "VisionAnalyst",

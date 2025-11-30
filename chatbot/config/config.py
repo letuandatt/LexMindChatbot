@@ -8,8 +8,8 @@ load_dotenv(dotenv_path=env_path, verbose=True)
 
 # Google GenAI
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-DATA_DIR = current_dir / "data"
-CUSC_MAIN_STORE_NAME = os.getenv("CUSC_MAIN_STORE_NAME")
+DATA_DIR = current_dir / "data" / "CongThongTinDienTu"
+LAW_MAIN_STORE_NAME = os.getenv("LAW_MAIN_STORE_NAME")
 
 # MongoDB
 MONGO_URI = os.getenv("MONGO_URI")

@@ -12,7 +12,7 @@ for m in models:
 
 try:
     client.models.generate_content(
-        model="gemini-2.5-pro",
+        model="gemini-3-pro-preview",
         contents="ping",
         config=genai.types.GenerateContentConfig(max_output_tokens=1)
     )
