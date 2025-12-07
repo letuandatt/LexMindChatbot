@@ -8,3 +8,5 @@ chatbot/llm/__pycache__
 chatbot/router/__pycache__
 chatbot/tools/__pycache__
 chatbot/services/__pycache__
+node_modules
+.next
