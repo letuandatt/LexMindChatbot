@@ -106,7 +106,7 @@ def main():
     print("=" * 30)
 
     # Mock User ID (Trong thực tế lấy từ Authen)
-    user_id = "6915f6a4d74b46caa1d4d0b2"
+    user_id = "693480b1b9317c97a6743561"
 
     print("[1] Tạo session mới")
     print("[2] Tiếp tục session cũ")

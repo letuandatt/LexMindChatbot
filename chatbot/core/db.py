@@ -6,10 +6,11 @@ _mongo_client = None
 _mongo_db = None
 DB_COLLECTION = None
 DB_DOCUMENTS_COLLECTION = None
+DB_USERS_COLLECTION = None
 FS = None
 
 def init_db():
-    global _mongo_client, _mongo_db, DB_COLLECTION, DB_DOCUMENTS_COLLECTION, FS
+    global _mongo_client, _mongo_db, DB_COLLECTION, DB_DOCUMENTS_COLLECTION, DB_USERS_COLLECTION, FS
     try:
         _mongo_client = MongoClient(app_config.MONGO_URI, serverSelectionTimeoutMS=5000, connectTimeoutMS=5000)
         _mongo_client.admin.command('ping')
@@ -44,6 +45,14 @@ def init_db():
         except Exception:
             # if documents collection not ready, ignore
             pass
+        
+        # users collection
+        DB_USERS_COLLECTION = _mongo_db.get_collection("users")
+        try:
+            DB_USERS_COLLECTION.create_index([("email", ASCENDING)], unique=True)
+        except Exception:
+            pass
+        
         print("[core.db] MongoDB initialized.")
     except Exception as e:
         print(f"[core.db] Failed to initialize MongoDB: {e}")

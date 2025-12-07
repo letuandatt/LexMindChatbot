@@ -14,8 +14,6 @@ def create_and_populate_store(client):
     """
     print("Đang tạo File Store mới trên Google...")
     try:
-        # === SỬA LỖI LOGIC ===
-        # display_name là một tên cố định, không phải biến
         file_store = client.file_search_stores.create(
             config={
                 'display_name': 'Law Knowledge'

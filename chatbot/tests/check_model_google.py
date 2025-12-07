@@ -11,11 +11,11 @@ for m in models:
     print(m.name)
 
 try:
-    client.models.generate_content(
+    result = client.models.generate_content(
         model="gemini-3-pro-preview",
-        contents="ping",
-        config=genai.types.GenerateContentConfig(max_output_tokens=1)
+        contents="What's the capital of Vietnam? Answer in Chinese."
     )
+    print(result.text)
     print("Model is now available!")
 except Exception as e:
     if "quota" in str(e).lower() or "exceeded" in str(e).lower():

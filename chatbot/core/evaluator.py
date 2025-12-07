@@ -33,5 +33,4 @@ class RelevanceEvaluator:
             return score.strip().upper()
         except Exception as e:
             print(f"[Evaluator] Error: {e}")
-            # Fallback: Nếu lỗi thì tạm chấp nhận (An toàn)
-            return "YES"
+            return "NO"

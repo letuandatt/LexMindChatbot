@@ -11,8 +11,8 @@ def create_supervisor_node(llm, members: list[str]):
         "2. 'LawResearcher': Dùng cho câu hỏi về các văn bản quy phạm pháp luật.\n"
         "3. 'PersonalAnalyst': Dùng cho câu hỏi về File upload hoặc lịch sử chat.\n"
         "4. 'GeneralResponder': CHỈ DÙNG cho các câu CHÀO HỎI XÃ GIAO ('Xin chào', 'Cảm ơn', 'Bye') hoặc hỏi về DANH TÍNH BOT ('Bạn là ai').\n"
-        "   - CẢNH BÁO: Nếu người dùng hỏi kiến thức bên ngoài (Ví dụ: 'Thủ đô Paris?', 'Cách nấu ăn?', 'Viết code Python'), HÃY CHỌN 'PolicyResearcher' (để hệ thống tìm trong tài liệu nội bộ, nếu không thấy sẽ báo không có).\n"
-        "   - TUYỆT ĐỐI KHÔNG dùng GeneralResponder để trả lời kiến thức không liên quan CUSC.\n\n"
+        "   - CẢNH BÁO: Nếu người dùng hỏi kiến thức bên ngoài (Ví dụ: 'Thủ đô Paris?', 'Cách nấu ăn?', 'Viết code Python'), HÃY CHỌN 'LawResearcher' (để hệ thống tìm trong tài liệu nội bộ, nếu không thấy sẽ báo không có).\n"
+        "   - TUYỆT ĐỐI KHÔNG dùng GeneralResponder để trả lời kiến thức không liên quan văn bản quy phạm pháp luật nói chung.\n\n"
         "Chọn 'FINISH' nếu đã xong."
     )
 

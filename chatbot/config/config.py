@@ -13,7 +13,7 @@ LAW_MAIN_STORE_NAME = os.getenv("LAW_MAIN_STORE_NAME")
 
 # MongoDB
 MONGO_URI = os.getenv("MONGO_URI")
-MONGO_DB_NAME = "Chatbot_CUSC"
+MONGO_DB_NAME = "Chatbot_Law"
 
 # Redis (Single URL)
 REDIS_URL = os.getenv("REDIS_URL")
@@ -25,3 +25,16 @@ COHERE_MODEL_NAME = "rerank-multilingual-v3.0"
 # Models
 TEXT_MODEL_NAME = "gemini-2.5-flash"
 VISION_MODEL_NAME = "gemini-2.5-flash"
+
+# JWT Authentication
+JWT_SECRET_KEY = os.getenv("JWT_SECRET_KEY")
+JWT_ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24  # 24 hours
+
+# Email (Gmail SMTP)
+GMAIL_USER = os.getenv("GMAIL_USER")
+GMAIL_APP_PASSWORD = os.getenv("GMAIL_APP_PASSWORD")
+FRONTEND_URL = os.getenv("FRONTEND_URL", "http://localhost:3000")
+
+# Verification Token
+VERIFICATION_TOKEN_EXPIRE_HOURS = 24
