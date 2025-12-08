@@ -85,6 +85,12 @@ class AdvancedRagPipeline:
         # 4. Generate Answer
         final_prompt = f"""Dựa vào các thông tin ĐÃ ĐƯỢC KIỂM CHỨNG sau đây, hãy trả lời câu hỏi.
 
+QUY TẮC TRÍCH DẪN (BẮT BUỘC):
+1. Trích dẫn RÕ RÀNG: Điều số mấy, Khoản số mấy, Điểm nào (nếu context có ghi)
+2. Ghi rõ tên văn bản pháp luật và số hiệu (ví dụ: Chỉ thị 12/CT-TTg năm 2022)
+3. Nếu context KHÔNG ghi rõ Điều/Khoản, chỉ trích dẫn tên văn bản và số hiệu
+4. TUYỆT ĐỐI KHÔNG tự bịa ra số Điều/Khoản nếu context không ghi rõ
+
 NGỮ CẢNH (CONTEXT):
 {context_text}
 

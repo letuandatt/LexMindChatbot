@@ -102,11 +102,11 @@ def handle_unified_query(query_text: str, image_path: str | None, user_id: str, 
 
 # --- MAIN LOOP ---
 def main():
-    print("🤖 Chatbot CUSC (Unified Multi-Agent) sẵn sàng!")
+    print("🤖 Chatbot Law (Unified Multi-Agent) sẵn sàng!")
     print("=" * 30)
 
     # Mock User ID (Trong thực tế lấy từ Authen)
-    user_id = "693480b1b9317c97a6743561"
+    user_id = "6935267b0d228c9dbb5d0ecc"
 
     print("[1] Tạo session mới")
     print("[2] Tiếp tục session cũ")
