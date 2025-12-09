@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Law Chatbot",
+  title: "LexMind",
   description: "Hệ thống Chatbot tra cứu văn bản pháp luật",
 };
 

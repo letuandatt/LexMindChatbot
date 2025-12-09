@@ -17,7 +17,7 @@ export default function HomePage() {
 
       {/* Description */}
       <p className="text-zinc-400 text-center text-base max-w-md mt-4 leading-relaxed">
-        Hệ thống hỏi đáp thông minh tra cứu văn bản quy phạm pháp luật Việt Nam
+          Hệ thống hỏi đáp thông minh <br /> Tra cứu văn bản quy phạm pháp luật Việt Nam
       </p>
 
       {/* Buttons */}

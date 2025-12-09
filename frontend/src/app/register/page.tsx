@@ -61,12 +61,6 @@ export default function RegisterPage() {
                 <p className="text-zinc-500 mt-3 text-center max-w-xs">
                     Vui lòng kiểm tra email để xác thực tài khoản.
                 </p>
-                <Link
-                    href="/login"
-                    className="mt-8 px-8 py-3 bg-white text-zinc-900 font-medium rounded-full hover:bg-zinc-200 transition-colors"
-                >
-                    Đi đến đăng nhập
-                </Link>
             </div>
         );
     }
