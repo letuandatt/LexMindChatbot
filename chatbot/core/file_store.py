@@ -5,7 +5,7 @@ from bson.objectid import ObjectId
 from chatbot.core.db import DB_DOCUMENTS_COLLECTION, FS
 from chatbot.core.utils import compute_file_hash
 
-def save_pdf_to_mongo(file_path: str, session_id: str, user_id: str) -> str | None:
+def save_pdf_to_mongo(file_path: str, session_id: str, user_id: str, original_filename: str = None) -> str | None:
     """
     Save PDF into GridFS + documents collection. Return documents._id as string.
     Deduplicate by file_hash per user.
@@ -17,7 +17,8 @@ def save_pdf_to_mongo(file_path: str, session_id: str, user_id: str) -> str | No
         return None
     try:
         file_hash = compute_file_hash(file_path)
-        file_name = os.path.basename(file_path)
+        # Use original filename if provided, otherwise fallback to basename
+        file_name = original_filename or os.path.basename(file_path)
         # check if same file already uploaded in this session
         existing = coll.find_one({"file_hash": file_hash, "user_id": user_id, "session_id": session_id})
         if existing:

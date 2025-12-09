@@ -7,7 +7,14 @@ from pymongo import DESCENDING
 
 MAX_HISTORY = 20
 
-def save_session_message(session_id: str, user_id: str, question: str, answer: str, image_gridfs_id: str | None = None):
+def save_session_message(
+    session_id: str, 
+    user_id: str, 
+    question: str, 
+    answer: str, 
+    image_gridfs_id: str | None = None,
+    thinking_steps: list | None = None
+):
     coll = get_mongo_collection("sessions")
     if coll is None:
         print("[core.history] sessions collection missing.")
@@ -17,6 +24,7 @@ def save_session_message(session_id: str, user_id: str, question: str, answer: s
         "question": question,
         "answer": answer,
         "image_gridfs_id": image_gridfs_id,
+        "thinking_steps": thinking_steps,
         "timestamp": now
     }
     try:

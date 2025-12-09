@@ -99,7 +99,7 @@ if __name__ == '__main__':
     # 3. Lấy câu hỏi
     test_question = input("Nhập câu hỏi test (Enter để dùng câu mặc định): ")
     if not test_question.strip():
-        test_question = "Theo chỉ thị 12/CT-TTg năm 2022, việc quán triệt chủ trương phát triển kinh tế đi đôi với cái gì?"
+        test_question = "Chỉ thị nào nói về việc quy định học 2 buổi/ngày?"
         print(f"Sử dụng câu hỏi mặc định: {test_question}")
 
     # 4. Chạy test
