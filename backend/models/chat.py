@@ -29,12 +29,20 @@ class ImageChatRequest(BaseModel):
     image_base64: str = Field(..., min_length=1)  # Required base64 encoded image
 
 
+class ThinkingStep(BaseModel):
+    """Schema for a single thinking/reasoning step"""
+    agent: str  # Agent name (Supervisor, LawResearcher, etc.)
+    action: str  # What the agent is doing
+    detail: Optional[str] = None  # Additional details
+
+
 class ChatResponse(BaseModel):
     """Schema for chat response"""
     session_id: str
     response: str
     agent_name: Optional[str] = None
     sources: Optional[List[str]] = None  # References/sources used
+    thinking_steps: Optional[List[ThinkingStep]] = None  # Reasoning steps
 
 
 class StreamChatResponse(BaseModel):

@@ -8,6 +8,14 @@ from bson import ObjectId
 
 from chatbot.core.db import get_mongo_collection
 from pymongo import DESCENDING
+from datetime import timezone, timedelta
+
+# Vietnam timezone (UTC+7)
+VN_TIMEZONE = timezone(timedelta(hours=7))
+
+def get_vn_now():
+    """Get current time in Vietnam timezone"""
+    return datetime.now(VN_TIMEZONE)
 
 
 def get_user_sessions(user_id: str, limit: int = 50, skip: int = 0) -> List[dict]:
@@ -64,7 +72,7 @@ def create_session(session_id: str, user_id: str, title: Optional[str] = None) -
     Create a new chat session
     """
     coll = get_mongo_collection("sessions")
-    now = datetime.utcnow()
+    now = get_vn_now()
     
     session_doc = {
         "session_id": session_id,
@@ -95,7 +103,7 @@ def update_session_title(session_id: str, user_id: str, title: str) -> bool:
     try:
         result = coll.update_one(
             {"session_id": session_id, "user_id": user_id},
-            {"$set": {"title": title, "updated_at": datetime.utcnow()}}
+            {"$set": {"title": title, "updated_at": get_vn_now()}}
         )
         return result.modified_count > 0
     except Exception as e:

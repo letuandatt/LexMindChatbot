@@ -63,6 +63,39 @@ async def chat_text(
             config={"configurable": {"session_id": session_id, "user_id": user_id}}
         )
         
+        # Extract thinking steps from all messages
+        from backend.models.chat import ThinkingStep
+        thinking_steps = []
+        
+        for msg in result.get("messages", []):
+            msg_name = getattr(msg, 'name', None)
+            msg_content = getattr(msg, 'content', '')
+            msg_type = type(msg).__name__
+            
+            if msg_type == "HumanMessage":
+                continue  # Skip user message
+            
+            if msg_name == "Supervisor" or msg_type == "AIMessage" and not msg_name:
+                # Supervisor deciding which agent to use
+                thinking_steps.append(ThinkingStep(
+                    agent="Supervisor",
+                    action="Phân tích câu hỏi và chuyển đến chuyên gia phù hợp",
+                    detail=None
+                ))
+            elif msg_name:
+                # Worker agent response
+                agent_actions = {
+                    "LawResearcher": "Tra cứu văn bản quy phạm pháp luật",
+                    "PersonalAnalyst": "Tìm kiếm trong tài liệu cá nhân",
+                    "GeneralResponder": "Xử lý câu hỏi xã giao",
+                    "VisionAnalyst": "Phân tích hình ảnh"
+                }
+                thinking_steps.append(ThinkingStep(
+                    agent=msg_name,
+                    action=agent_actions.get(msg_name, "Xử lý yêu cầu"),
+                    detail=msg_content[:100] + "..." if len(msg_content) > 100 else msg_content
+                ))
+        
         last_message = result["messages"][-1]
         response_text = last_message.content
         agent_name = getattr(last_message, 'name', None)
@@ -71,7 +104,8 @@ async def chat_text(
             session_id=session_id,
             user_id=user_id,
             question=request.message,
-            answer=response_text
+            answer=response_text,
+            thinking_steps=[{"agent": s.agent, "action": s.action, "detail": s.detail} for s in thinking_steps] if thinking_steps else None
         )
         
         if app.memory_service:
@@ -80,7 +114,8 @@ async def chat_text(
         return ChatResponse(
             session_id=session_id,
             response=response_text,
-            agent_name=agent_name
+            agent_name=agent_name,
+            thinking_steps=thinking_steps if thinking_steps else None
         )
         
     except Exception as e:
@@ -301,8 +336,8 @@ async def upload_file(
             tmp.write(content)
             temp_path = tmp.name
         
-        # Save to MongoDB/GridFS
-        file_id = save_pdf_to_mongo(temp_path, session_id, user_id)
+        # Save to MongoDB/GridFS with original filename
+        file_id = save_pdf_to_mongo(temp_path, session_id, user_id, original_filename=file.filename)
         
         if not file_id:
             raise HTTPException(
@@ -331,3 +366,287 @@ async def upload_file(
                 os.remove(temp_path)
             except:
                 pass
+
+
+@router.get(
+    "/file/{file_id}/status",
+    summary="Check file processing status",
+    description="Check the processing status of an uploaded file"
+)
+async def check_file_status(
+    file_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Check the status of a file that was uploaded for processing.
+    
+    Returns:
+    - status: "uploaded" | "processing" | "processed" | "error_processing"
+    - filename: Original filename
+    - file_store_name: (only if processed) The file store name
+    """
+    from chatbot.core.db import DB_DOCUMENTS_COLLECTION
+    from bson import ObjectId
+    
+    user_id = str(current_user["_id"])
+    
+    if DB_DOCUMENTS_COLLECTION is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not available"
+        )
+    
+    try:
+        doc = DB_DOCUMENTS_COLLECTION.find_one({
+            "_id": ObjectId(file_id),
+            "user_id": user_id
+        })
+        
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found"
+            )
+        
+        return {
+            "file_id": file_id,
+            "filename": doc.get("filename"),
+            "status": doc.get("status", "uploaded"),
+            "file_store_name": doc.get("file_store_name"),
+            "error": doc.get("error")
+        }
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error checking file status: {str(e)}"
+        )
+
+
+@router.get(
+    "/files",
+    summary="List all uploaded files",
+    description="Get a list of all files uploaded by the current user"
+)
+async def list_user_files(
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    List all files uploaded by the current user.
+    Returns file info including session name.
+    """
+    from chatbot.core.db import DB_DOCUMENTS_COLLECTION, get_mongo_collection
+    from pymongo import DESCENDING
+    
+    user_id = str(current_user["_id"])
+    
+    if DB_DOCUMENTS_COLLECTION is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not available"
+        )
+    
+    try:
+        # Get sessions for mapping session_id -> title
+        sessions_coll = get_mongo_collection("sessions")
+        session_titles = {}
+        if sessions_coll is not None:
+            for s in sessions_coll.find({"user_id": user_id}, {"session_id": 1, "title": 1}):
+                sid = s.get("session_id", "")
+                if sid:
+                    session_titles[sid] = s.get("title") or f"Phiên {sid[:8]}..."
+        
+        # Get files
+        cursor = DB_DOCUMENTS_COLLECTION.find(
+            {"user_id": user_id},
+            {"filename": 1, "status": 1, "session_id": 1, "created_at": 1, "file_gridfs_id": 1}
+        ).sort("created_at", -1)
+        
+        files = []
+        for doc in cursor:
+            session_id = doc.get("session_id") or ""
+            created_at = doc.get("created_at")
+            # Handle datetime serialization
+            if created_at and hasattr(created_at, 'isoformat'):
+                created_at_str = created_at.isoformat()
+            elif created_at:
+                created_at_str = str(created_at)
+            else:
+                created_at_str = None
+            
+            files.append({
+                "file_id": str(doc["_id"]),
+                "filename": doc.get("filename", "unknown"),
+                "status": doc.get("status", "unknown"),
+                "session_id": session_id,
+                "session_name": session_titles.get(session_id, f"Phiên {session_id[:8]}..." if len(session_id) >= 8 else "Không rõ"),
+                "created_at": created_at_str,
+                "has_file": bool(doc.get("file_gridfs_id"))
+            })
+        
+        return {"files": files, "total": len(files)}
+        
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error listing files: {str(e)}"
+        )
+
+
+from fastapi.responses import StreamingResponse
+import io
+
+@router.get(
+    "/files/{file_id}/download",
+    summary="Download uploaded file",
+    description="Download the original uploaded file"
+)
+async def download_file(
+    file_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Download the original file from GridFS.
+    """
+    from chatbot.core.db import DB_DOCUMENTS_COLLECTION, FS
+    from bson import ObjectId
+    
+    user_id = str(current_user["_id"])
+    
+    if DB_DOCUMENTS_COLLECTION is None or FS is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not available"
+        )
+    
+    try:
+        # Find the document
+        doc = DB_DOCUMENTS_COLLECTION.find_one({
+            "_id": ObjectId(file_id),
+            "user_id": user_id
+        })
+        
+        if not doc:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found"
+            )
+        
+        gridfs_id = doc.get("file_gridfs_id")
+        if not gridfs_id:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File content not available"
+            )
+        
+        # Get file from GridFS
+        try:
+            grid_file = FS.get(ObjectId(gridfs_id))
+        except Exception:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File content not found in storage"
+            )
+        
+        # Read file content
+        file_content = grid_file.read()
+        filename = doc.get("filename", "download.pdf")
+        
+        # Determine content type
+        if filename.lower().endswith('.pdf'):
+            content_type = "application/pdf"
+        elif filename.lower().endswith(('.jpg', '.jpeg')):
+            content_type = "image/jpeg"
+        elif filename.lower().endswith('.png'):
+            content_type = "image/png"
+        elif filename.lower().endswith('.gif'):
+            content_type = "image/gif"
+        elif filename.lower().endswith('.webp'):
+            content_type = "image/webp"
+        else:
+            content_type = "application/octet-stream"
+        
+        return StreamingResponse(
+            io.BytesIO(file_content),
+            media_type=content_type,
+            headers={
+                "Content-Disposition": f'attachment; filename="{filename}"'
+            }
+        )
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error downloading file: {str(e)}"
+        )
+
+
+@router.delete(
+    "/files/{file_id}",
+    status_code=status.HTTP_200_OK,
+    summary="Delete uploaded file",
+    description="Delete an uploaded file from the database"
+)
+async def delete_file(
+    file_id: str,
+    current_user: dict = Depends(get_current_user)
+):
+    """
+    Delete a file from documents collection and optionally from GridFS.
+    """
+    from chatbot.core.db import DB_DOCUMENTS_COLLECTION, FS
+    from bson import ObjectId
+    
+    user_id = str(current_user["_id"])
+    
+    if DB_DOCUMENTS_COLLECTION is None:
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Database not available"
+        )
+    
+    try:
+        # Find the document
+        doc = DB_DOCUMENTS_COLLECTION.find_one({
+            "_id": ObjectId(file_id),
+            "user_id": user_id
+        })
+        
+        if doc is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="File not found"
+            )
+        
+        # Delete from GridFS if exists and no other documents reference it
+        gridfs_id = doc.get("file_gridfs_id")
+        if gridfs_id and FS is not None:
+            # Check if any other document uses this gridfs file
+            other_refs = DB_DOCUMENTS_COLLECTION.count_documents({
+                "file_gridfs_id": gridfs_id,
+                "_id": {"$ne": ObjectId(file_id)}
+            })
+            if other_refs == 0:
+                try:
+                    FS.delete(ObjectId(gridfs_id))
+                except Exception:
+                    pass  # GridFS file may already be deleted
+        
+        # Delete the document
+        DB_DOCUMENTS_COLLECTION.delete_one({"_id": ObjectId(file_id)})
+        
+        return {"message": "File deleted successfully"}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Error deleting file: {str(e)}"
+        )

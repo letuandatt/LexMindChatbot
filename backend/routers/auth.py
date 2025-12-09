@@ -190,3 +190,30 @@ async def logout():
     """
     return {"message": "Successfully logged out. Please discard your token."}
 
+
+@router.delete(
+    "/account",
+    status_code=status.HTTP_200_OK,
+    summary="Delete user account",
+    description="Permanently delete the current user's account"
+)
+async def delete_account(current_user: dict = Depends(get_current_user)):
+    """
+    Delete the current user's account permanently.
+    
+    This action cannot be undone. All user data including sessions will be deleted.
+    """
+    from backend.services.user_service import delete_user
+    
+    user_id = str(current_user["_id"])
+    success = delete_user(user_id)
+    
+    if not success:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Không thể xóa tài khoản. Vui lòng thử lại sau."
+        )
+    
+    return {"message": "Tài khoản đã được xóa thành công."}
+
+
